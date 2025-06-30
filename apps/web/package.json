@@ -1,0 +1,15 @@
+{
+  "name": "@org/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/index.tsx",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@org/ui": "*",
+    "@org/utils": "*",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}

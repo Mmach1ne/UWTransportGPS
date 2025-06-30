@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "packageManager": "yarn@4.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "turbo run dev",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "jest"
+  }
+}
