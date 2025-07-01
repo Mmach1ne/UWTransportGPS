@@ -77,3 +77,13 @@ out/
 .cache/
 .vercel
 .netlify
+
+# CDK
+cdk.out/
+.cdk.staging/
+
+# Environment files
+.env
+
+# AWS
+.aws-sam/
