@@ -1,0 +1,100 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.BudgetStack = void 0;
+const cdk = __importStar(require("aws-cdk-lib"));
+const budgets = __importStar(require("aws-cdk-lib/aws-budgets"));
+class BudgetStack extends cdk.Stack {
+    constructor(scope, id, props) {
+        super(scope, id, props);
+        // Create monthly budget
+        new budgets.CfnBudget(this, 'MonthlyBudget', {
+            budget: {
+                budgetType: 'COST',
+                timeUnit: 'MONTHLY',
+                budgetLimit: {
+                    amount: props.budgetAmount,
+                    unit: 'USD',
+                },
+                budgetName: `transport-gps-${props.environment}-monthly-budget`,
+                costFilters: {
+                    // Optional: Add tags to filter costs
+                    TagKeyValue: [`Environment$${props.environment}`],
+                },
+            },
+            notificationsWithSubscribers: [
+                {
+                    notification: {
+                        notificationType: 'FORECASTED',
+                        comparisonOperator: 'GREATER_THAN',
+                        threshold: 80,
+                        thresholdType: 'PERCENTAGE',
+                    },
+                    subscribers: [
+                        {
+                            subscriptionType: 'EMAIL',
+                            address: props.emailAddress,
+                        },
+                    ],
+                },
+                {
+                    notification: {
+                        notificationType: 'ACTUAL',
+                        comparisonOperator: 'GREATER_THAN',
+                        threshold: 90,
+                        thresholdType: 'PERCENTAGE',
+                    },
+                    subscribers: [
+                        {
+                            subscriptionType: 'EMAIL',
+                            address: props.emailAddress,
+                        },
+                    ],
+                },
+                {
+                    notification: {
+                        notificationType: 'ACTUAL',
+                        comparisonOperator: 'GREATER_THAN',
+                        threshold: 100,
+                        thresholdType: 'PERCENTAGE',
+                    },
+                    subscribers: [
+                        {
+                            subscriptionType: 'EMAIL',
+                            address: props.emailAddress,
+                        },
+                    ],
+                },
+            ],
+        });
+        // Output budget information
+        new cdk.CfnOutput(this, 'BudgetName', {
+            value: `transport-gps-${props.environment}-monthly-budget`,
+            description: 'Name of the created budget',
+        });
+    }
+}
+exports.BudgetStack = BudgetStack;
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiYnVkZ2V0LXN0YWNrLmpzIiwic291cmNlUm9vdCI6IiIsInNvdXJjZXMiOlsiYnVkZ2V0LXN0YWNrLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7O0FBQUEsaURBQW1DO0FBQ25DLGlFQUFtRDtBQVNuRCxNQUFhLFdBQVksU0FBUSxHQUFHLENBQUMsS0FBSztJQUN4QyxZQUFZLEtBQWdCLEVBQUUsRUFBVSxFQUFFLEtBQXVCO1FBQy9ELEtBQUssQ0FBQyxLQUFLLEVBQUUsRUFBRSxFQUFFLEtBQUssQ0FBQyxDQUFDO1FBRXhCLHdCQUF3QjtRQUN4QixJQUFJLE9BQU8sQ0FBQyxTQUFTLENBQUMsSUFBSSxFQUFFLGVBQWUsRUFBRTtZQUMzQyxNQUFNLEVBQUU7Z0JBQ04sVUFBVSxFQUFFLE1BQU07Z0JBQ2xCLFFBQVEsRUFBRSxTQUFTO2dCQUNuQixXQUFXLEVBQUU7b0JBQ1gsTUFBTSxFQUFFLEtBQUssQ0FBQyxZQUFZO29CQUMxQixJQUFJLEVBQUUsS0FBSztpQkFDWjtnQkFDRCxVQUFVLEVBQUUsaUJBQWlCLEtBQUssQ0FBQyxXQUFXLGlCQUFpQjtnQkFDL0QsV0FBVyxFQUFFO29CQUNYLHFDQUFxQztvQkFDckMsV0FBVyxFQUFFLENBQUMsZUFBZSxLQUFLLENBQUMsV0FBVyxFQUFFLENBQUM7aUJBQ2xEO2FBQ0Y7WUFDRCw0QkFBNEIsRUFBRTtnQkFDNUI7b0JBQ0UsWUFBWSxFQUFFO3dCQUNaLGdCQUFnQixFQUFFLFlBQVk7d0JBQzlCLGtCQUFrQixFQUFFLGNBQWM7d0JBQ2xDLFNBQVMsRUFBRSxFQUFFO3dCQUNiLGFBQWEsRUFBRSxZQUFZO3FCQUM1QjtvQkFDRCxXQUFXLEVBQUU7d0JBQ1g7NEJBQ0UsZ0JBQWdCLEVBQUUsT0FBTzs0QkFDekIsT0FBTyxFQUFFLEtBQUssQ0FBQyxZQUFZO3lCQUM1QjtxQkFDRjtpQkFDRjtnQkFDRDtvQkFDRSxZQUFZLEVBQUU7d0JBQ1osZ0JBQWdCLEVBQUUsUUFBUTt3QkFDMUIsa0JBQWtCLEVBQUUsY0FBYzt3QkFDbEMsU0FBUyxFQUFFLEVBQUU7d0JBQ2IsYUFBYSxFQUFFLFlBQVk7cUJBQzVCO29CQUNELFdBQVcsRUFBRTt3QkFDWDs0QkFDRSxnQkFBZ0IsRUFBRSxPQUFPOzRCQUN6QixPQUFPLEVBQUUsS0FBSyxDQUFDLFlBQVk7eUJBQzVCO3FCQUNGO2lCQUNGO2dCQUNEO29CQUNFLFlBQVksRUFBRTt3QkFDWixnQkFBZ0IsRUFBRSxRQUFRO3dCQUMxQixrQkFBa0IsRUFBRSxjQUFjO3dCQUNsQyxTQUFTLEVBQUUsR0FBRzt3QkFDZCxhQUFhLEVBQUUsWUFBWTtxQkFDNUI7b0JBQ0QsV0FBVyxFQUFFO3dCQUNYOzRCQUNFLGdCQUFnQixFQUFFLE9BQU87NEJBQ3pCLE9BQU8sRUFBRSxLQUFLLENBQUMsWUFBWTt5QkFDNUI7cUJBQ0Y7aUJBQ0Y7YUFDRjtTQUNGLENBQUMsQ0FBQztRQUVILDRCQUE0QjtRQUM1QixJQUFJLEdBQUcsQ0FBQyxTQUFTLENBQUMsSUFBSSxFQUFFLFlBQVksRUFBRTtZQUNwQyxLQUFLLEVBQUUsaUJBQWlCLEtBQUssQ0FBQyxXQUFXLGlCQUFpQjtZQUMxRCxXQUFXLEVBQUUsNEJBQTRCO1NBQzFDLENBQUMsQ0FBQztJQUNMLENBQUM7Q0FDRjtBQXZFRCxrQ0F1RUMiLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgKiBhcyBjZGsgZnJvbSAnYXdzLWNkay1saWInO1xyXG5pbXBvcnQgKiBhcyBidWRnZXRzIGZyb20gJ2F3cy1jZGstbGliL2F3cy1idWRnZXRzJztcclxuaW1wb3J0IHsgQ29uc3RydWN0IH0gZnJvbSAnY29uc3RydWN0cyc7XHJcblxyXG5pbnRlcmZhY2UgQnVkZ2V0U3RhY2tQcm9wcyBleHRlbmRzIGNkay5TdGFja1Byb3BzIHtcclxuICBlbnZpcm9ubWVudDogc3RyaW5nO1xyXG4gIGJ1ZGdldEFtb3VudDogbnVtYmVyO1xyXG4gIGVtYWlsQWRkcmVzczogc3RyaW5nO1xyXG59XHJcblxyXG5leHBvcnQgY2xhc3MgQnVkZ2V0U3RhY2sgZXh0ZW5kcyBjZGsuU3RhY2sge1xyXG4gIGNvbnN0cnVjdG9yKHNjb3BlOiBDb25zdHJ1Y3QsIGlkOiBzdHJpbmcsIHByb3BzOiBCdWRnZXRTdGFja1Byb3BzKSB7XHJcbiAgICBzdXBlcihzY29wZSwgaWQsIHByb3BzKTtcclxuXHJcbiAgICAvLyBDcmVhdGUgbW9udGhseSBidWRnZXRcclxuICAgIG5ldyBidWRnZXRzLkNmbkJ1ZGdldCh0aGlzLCAnTW9udGhseUJ1ZGdldCcsIHtcclxuICAgICAgYnVkZ2V0OiB7XHJcbiAgICAgICAgYnVkZ2V0VHlwZTogJ0NPU1QnLFxyXG4gICAgICAgIHRpbWVVbml0OiAnTU9OVEhMWScsXHJcbiAgICAgICAgYnVkZ2V0TGltaXQ6IHtcclxuICAgICAgICAgIGFtb3VudDogcHJvcHMuYnVkZ2V0QW1vdW50LFxyXG4gICAgICAgICAgdW5pdDogJ1VTRCcsXHJcbiAgICAgICAgfSxcclxuICAgICAgICBidWRnZXROYW1lOiBgdHJhbnNwb3J0LWdwcy0ke3Byb3BzLmVudmlyb25tZW50fS1tb250aGx5LWJ1ZGdldGAsXHJcbiAgICAgICAgY29zdEZpbHRlcnM6IHtcclxuICAgICAgICAgIC8vIE9wdGlvbmFsOiBBZGQgdGFncyB0byBmaWx0ZXIgY29zdHNcclxuICAgICAgICAgIFRhZ0tleVZhbHVlOiBbYEVudmlyb25tZW50JCR7cHJvcHMuZW52aXJvbm1lbnR9YF0sXHJcbiAgICAgICAgfSxcclxuICAgICAgfSxcclxuICAgICAgbm90aWZpY2F0aW9uc1dpdGhTdWJzY3JpYmVyczogW1xyXG4gICAgICAgIHtcclxuICAgICAgICAgIG5vdGlmaWNhdGlvbjoge1xyXG4gICAgICAgICAgICBub3RpZmljYXRpb25UeXBlOiAnRk9SRUNBU1RFRCcsXHJcbiAgICAgICAgICAgIGNvbXBhcmlzb25PcGVyYXRvcjogJ0dSRUFURVJfVEhBTicsXHJcbiAgICAgICAgICAgIHRocmVzaG9sZDogODAsXHJcbiAgICAgICAgICAgIHRocmVzaG9sZFR5cGU6ICdQRVJDRU5UQUdFJyxcclxuICAgICAgICAgIH0sXHJcbiAgICAgICAgICBzdWJzY3JpYmVyczogW1xyXG4gICAgICAgICAgICB7XHJcbiAgICAgICAgICAgICAgc3Vic2NyaXB0aW9uVHlwZTogJ0VNQUlMJyxcclxuICAgICAgICAgICAgICBhZGRyZXNzOiBwcm9wcy5lbWFpbEFkZHJlc3MsXHJcbiAgICAgICAgICAgIH0sXHJcbiAgICAgICAgICBdLFxyXG4gICAgICAgIH0sXHJcbiAgICAgICAge1xyXG4gICAgICAgICAgbm90aWZpY2F0aW9uOiB7XHJcbiAgICAgICAgICAgIG5vdGlmaWNhdGlvblR5cGU6ICdBQ1RVQUwnLFxyXG4gICAgICAgICAgICBjb21wYXJpc29uT3BlcmF0b3I6ICdHUkVBVEVSX1RIQU4nLFxyXG4gICAgICAgICAgICB0aHJlc2hvbGQ6IDkwLFxyXG4gICAgICAgICAgICB0aHJlc2hvbGRUeXBlOiAnUEVSQ0VOVEFHRScsXHJcbiAgICAgICAgICB9LFxyXG4gICAgICAgICAgc3Vic2NyaWJlcnM6IFtcclxuICAgICAgICAgICAge1xyXG4gICAgICAgICAgICAgIHN1YnNjcmlwdGlvblR5cGU6ICdFTUFJTCcsXHJcbiAgICAgICAgICAgICAgYWRkcmVzczogcHJvcHMuZW1haWxBZGRyZXNzLFxyXG4gICAgICAgICAgICB9LFxyXG4gICAgICAgICAgXSxcclxuICAgICAgICB9LFxyXG4gICAgICAgIHtcclxuICAgICAgICAgIG5vdGlmaWNhdGlvbjoge1xyXG4gICAgICAgICAgICBub3RpZmljYXRpb25UeXBlOiAnQUNUVUFMJyxcclxuICAgICAgICAgICAgY29tcGFyaXNvbk9wZXJhdG9yOiAnR1JFQVRFUl9USEFOJyxcclxuICAgICAgICAgICAgdGhyZXNob2xkOiAxMDAsXHJcbiAgICAgICAgICAgIHRocmVzaG9sZFR5cGU6ICdQRVJDRU5UQUdFJyxcclxuICAgICAgICAgIH0sXHJcbiAgICAgICAgICBzdWJzY3JpYmVyczogW1xyXG4gICAgICAgICAgICB7XHJcbiAgICAgICAgICAgICAgc3Vic2NyaXB0aW9uVHlwZTogJ0VNQUlMJyxcclxuICAgICAgICAgICAgICBhZGRyZXNzOiBwcm9wcy5lbWFpbEFkZHJlc3MsXHJcbiAgICAgICAgICAgIH0sXHJcbiAgICAgICAgICBdLFxyXG4gICAgICAgIH0sXHJcbiAgICAgIF0sXHJcbiAgICB9KTtcclxuXHJcbiAgICAvLyBPdXRwdXQgYnVkZ2V0IGluZm9ybWF0aW9uXHJcbiAgICBuZXcgY2RrLkNmbk91dHB1dCh0aGlzLCAnQnVkZ2V0TmFtZScsIHtcclxuICAgICAgdmFsdWU6IGB0cmFuc3BvcnQtZ3BzLSR7cHJvcHMuZW52aXJvbm1lbnR9LW1vbnRobHktYnVkZ2V0YCxcclxuICAgICAgZGVzY3JpcHRpb246ICdOYW1lIG9mIHRoZSBjcmVhdGVkIGJ1ZGdldCcsXHJcbiAgICB9KTtcclxuICB9XHJcbn0iXX0=
