@@ -15,7 +15,7 @@ import os
 load_dotenv()
 
 class GPSDeviceSim:
-    def __init__(self, device_id: str, route_points: List[Tuple[float,float]],speed_kmh: float = 60.0):
+    def __init__(self, device_id: str, route_points: List[Tuple[float,float]],speed_kmh: float = 40.0):
         self.device_id = device_id
         self.route_points = route_points
         self.speed_kmh = speed_kmh
@@ -115,4 +115,78 @@ class AWSIoTClient:
             disconnect_future.result()
             print("Disconnected!")
 
+            
 
+def create_sample_route() -> List[Tuple[float, float]]:
+    # Sample route around a campus/area
+    return [
+    (43.4720, -80.5425),  #  1. NE corner, just north of University Station
+    (43.4725, -80.5450),  #  2. NW corner of Ring Road (near Columbia St)
+    (43.4705, -80.5480),  #  3. West side, by Westmount Rd
+    (43.4680, -80.5475),  #  4. SW corner of Ring Road
+    (43.4665, -80.5430),  #  5. South side (near Seagram Dr)
+    (43.4675, -80.5385),  #  6. SE corner of Ring Road
+    (43.4700, -80.5365),  #  7. East side (near University Ave)
+    (43.4715, -80.5380),  #  8. NE corner approaching back to station
+    (43.4720, -80.5425),  #  9. Loop closed at start
+    ]
+
+@click.command()
+@click.option('--device-id', default=None, help='Device ID (default: auto-generated)')
+@click.option('--endpoint', envvar='IOT_ENDPOINT', required=True, help='AWS IoT endpoint')
+@click.option('--cert', envvar='IOT_CERT_PATH', default='certs/device.pem.crt', help='Device certificate path')
+@click.option('--key', envvar='IOT_KEY_PATH', default='certs/private.pem.key', help='Private key path')
+@click.option('--ca', envvar='IOT_CA_PATH', default='certs/Amazon-root-CA-1.pem', help='Root CA path')
+@click.option('--interval', default=5, help='Publish interval in seconds')
+@click.option('--speed', default=30.0, help='Bus speed in km/h')
+def main(device_id, endpoint, cert, key, ca, interval, speed):
+    """Run GPS device simulator"""
+    
+    # Generate device ID if not provided
+    if not device_id:
+        device_id = f"bus-{str(uuid.uuid4())[:8]}"
+    
+    click.echo(f"Starting GPS simulator for device: {device_id}")
+    click.echo(f"Publishing to endpoint: {endpoint}")
+    click.echo(f"Update interval: {interval} seconds")
+    click.echo(f"Simulated speed: {speed} km/h")
+    
+    # Create simulator
+    route = create_sample_route()
+    simulator = GPSDeviceSim(device_id, route, speed)
+    
+    # Create IoT client
+    topic = f"transport/dev/{device_id}/location"
+    iot_client = AWSIoTClient(endpoint, cert, key, ca, device_id)
+    
+    try:
+        # Connect to AWS IoT
+        iot_client.connect()
+        
+        click.echo(f"\nPublishing to topic: {topic}")
+        click.echo("Press Ctrl+C to stop...\n")
+        
+        # Main simulation loop
+        while True:
+            # Update position
+            simulator.current_position = simulator.calculate_next_position(interval)
+            
+            # Get telemetry data
+            telemetry = simulator.get_telemetry()
+            
+            # Publish to AWS IoT
+            iot_client.publish(topic, telemetry)
+            
+            # Display what was sent
+            click.echo(f"Published: {json.dumps(telemetry, indent=2)}")
+            
+            # Wait for next interval
+            time.sleep(interval)
+            
+    except KeyboardInterrupt:
+        click.echo("\nStopping simulator...")
+    finally:
+        iot_client.disconnect()
+
+if __name__ == "__main__":
+    main()
