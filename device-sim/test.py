@@ -1,6 +1,6 @@
 import json
 import time
-from simulator import GPSDeviceSimulator, create_sample_route
+from simulator import GPSDeviceSim, create_sample_route
 
 def main():
     print("Testing GPS Device Simulator locally...\n")
@@ -8,7 +8,7 @@ def main():
     # Create simulator
     device_id = "bus-test-001"
     route = create_sample_route()
-    simulator = GPSDeviceSimulator(device_id, route, speed_kmh=40.0)
+    simulator = GPSDeviceSim(device_id, route, speed_kmh=40.0)
     
     print(f"Device ID: {device_id}")
     print(f"Route points: {len(route)}")

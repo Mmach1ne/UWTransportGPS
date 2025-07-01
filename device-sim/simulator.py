@@ -14,6 +14,15 @@ import os
 
 load_dotenv()
 
+def haversine(start, end):
+    R = 6371000  # m
+    φ1, λ1 = map(math.radians, start)
+    φ2, λ2 = map(math.radians, end)
+    dφ = φ2 - φ1
+    dλ = λ2 - λ1
+    a = math.sin(dφ/2)**2 + math.cos(φ1)*math.cos(φ2)*math.sin(dλ/2)**2
+    return 2*R*math.atan2(math.sqrt(a), math.sqrt(1-a))
+
 class GPSDeviceSim:
     def __init__(self, device_id: str, route_points: List[Tuple[float,float]],speed_kmh: float = 40.0):
         self.device_id = device_id
@@ -22,32 +31,43 @@ class GPSDeviceSim:
         self.current_position_index = 0
         self.current_position = route_points[0]
     def calculate_next_position(self, time_delta_seconds: float) -> Tuple[float, float]:
-        """Calculate next position based on speed and time"""
-        if self.current_position_index >= len(self.route_points) - 1:
-            self.current_position_index = 0  # Loop back to start
-            
-        start = self.route_points[self.current_position_index]
-        end = self.route_points[self.current_position_index + 1]
-        
-        # Calculate distance that can be traveled
-        speed_ms = (self.speed_kmh * 1000) / 3600  # Convert km/h to m/s
-        distance_m = speed_ms * time_delta_seconds
-        
-        # Calculate distance between points (simplified, assumes flat earth)
-        lat_diff = end[0] - start[0]
-        lon_diff = end[1] - start[1]
-        total_distance = math.sqrt(lat_diff**2 + lon_diff**2) * 111000  # Rough conversion to meters
-        
-        if distance_m >= total_distance:
-            # Reached the next point
-            self.current_position_index += 1
-            return self.calculate_next_position(time_delta_seconds - total_distance / speed_ms)
-        else:
-            # Interpolate position
-            progress = distance_m / total_distance
-            new_lat = start[0] + (lat_diff * progress)
-            new_lon = start[1] + (lon_diff * progress)
-            return (new_lat, new_lon)
+        """Calculate next position based on speed and time, updating self.current_position."""
+        speed_ms = (self.speed_kmh * 1000) / 3600  # km/h → m/s
+        remaining_time = time_delta_seconds
+
+        # Keep moving until we’ve used up the time slice
+        while remaining_time > 0:
+            # Next waypoint index (wrap around)
+            next_idx = (self.current_position_index + 1) % len(self.route_points)
+            start = self.current_position
+            end = self.route_points[next_idx]
+
+            # Flat-earth distance for this segment
+            lat_diff = end[0] - start[0]
+            lon_diff = end[1] - start[1]
+            segment_dist = haversine(start, end)  # in meters
+
+            # How far we *could* go in the remaining time
+            travel_dist = speed_ms * remaining_time
+
+            if travel_dist >= segment_dist:
+                # We can reach (or pass) the next waypoint
+                self.current_position = end
+                self.current_position_index = next_idx
+                # Subtract the time spent getting to that waypoint
+                remaining_time -= segment_dist / speed_ms
+                # loop again in case we have leftover time to continue onward
+            else:
+                # We stop somewhere *between* start and end
+                frac = travel_dist / segment_dist
+                new_lat = start[0] + lat_diff * frac
+                new_lon = start[1] + lon_diff * frac
+                self.current_position = (new_lat, new_lon)
+                # All time used up
+                remaining_time = 0
+
+        return self.current_position
+
     
     def get_telemetry(self) -> Dict:
         """Generate telemetry data"""
@@ -137,8 +157,8 @@ def create_sample_route() -> List[Tuple[float, float]]:
 @click.option('--cert', envvar='IOT_CERT_PATH', default='certs/device.pem.crt', help='Device certificate path')
 @click.option('--key', envvar='IOT_KEY_PATH', default='certs/private.pem.key', help='Private key path')
 @click.option('--ca', envvar='IOT_CA_PATH', default='certs/Amazon-root-CA-1.pem', help='Root CA path')
-@click.option('--interval', default=5, help='Publish interval in seconds')
-@click.option('--speed', default=30.0, help='Bus speed in km/h')
+@click.option('--interval', envvar='PUBLISH_INTERVAL', default=5, help='Publish interval in seconds')
+@click.option('--speed', envvar='BUS_SPEED_KMH', default=30.0, help='Bus speed in km/h')
 def main(device_id, endpoint, cert, key, ca, interval, speed):
     """Run GPS device simulator"""
     
