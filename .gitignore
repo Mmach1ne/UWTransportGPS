@@ -90,3 +90,6 @@ cdk.out/
 
 #Cert
 certs/
+
+#Venv
+venv/
