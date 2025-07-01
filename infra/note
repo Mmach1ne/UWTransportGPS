@@ -1,0 +1,9 @@
+Outputs:
+TransportInfra-dev.DataBucketName = transport-gps-data-dev-047746234115
+TransportInfra-dev.DeviceTableName = transport-devices-dev
+TransportInfra-dev.IoTPolicyName = TransportDevicePolicy-dev
+TransportInfra-dev.LocationTableName = transport-locations-dev
+TransportBudget-dev.BudgetName = transport-gps-dev-monthly-budget
+Stack ARN:
+arn:aws:cloudformation:us-east-1:047746234115:stack/transport-gps-dev/db782590-56bc-11f0-b73e-0affd8c3fd0f
+arn:aws:cloudformation:us-east-1:047746234115:stack/TransportBudget-dev/8d0a8bb0-56c5-11f0-9eda-0e793ef404bb

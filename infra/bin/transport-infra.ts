@@ -9,7 +9,7 @@ const app = new cdk.App();
 // Get environment from context
 const env = app.node.tryGetContext('env') || 'dev';
 
-// Define account IDs (replace with your actual account IDs)
+// Define account IDs
 const accounts = {
   dev: process.env.AWS_DEV_ACCOUNT_ID || process.env.CDK_DEFAULT_ACCOUNT,
   prod: process.env.AWS_PROD_ACCOUNT_ID || process.env.CDK_DEFAULT_ACCOUNT
@@ -21,11 +21,11 @@ const awsEnv = {
   region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
 };
 
-// Create budget alerts stack (only in the main account)
+// Create budget alerts stack (only in the prod  account)
 new BudgetStack(app, `TransportBudget-${env}`, {
   env: awsEnv,
   environment: env,
-  budgetAmount: env === 'prod' ? 1000 : 100, // Adjust these values
+  budgetAmount: env === 'prod' ? 50 : 20, 
   emailAddress: process.env.BUDGET_EMAIL || 'your-email@example.com',
 });
 
