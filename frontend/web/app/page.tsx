@@ -1,7 +1,7 @@
 'use client';
 
-import { add } from "@org/utils";
-import { Button } from "@org/ui";
+import { add } from "@transport/utils";
+import { Button } from "@transport/ui";
 
 export default function Home() {
   return (

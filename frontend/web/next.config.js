@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@org/ui', '@org/utils'],
+  transpilePackages: ['@transport/ui', '@transport/utils'],
   webpack: (config) => {
     // Handle TypeScript files in workspace packages
     config.resolve.extensionAlias = {

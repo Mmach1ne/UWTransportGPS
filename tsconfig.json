@@ -15,8 +15,8 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@org/ui": ["./packages/ui/src/index.ts"],
-      "@org/utils": ["./packages/utils/src/index.ts"]
+      "@transport/ui": ["./packages/ui/src/index.ts"],
+      "@transport/utils": ["./packages/utils/src/index.ts"]
     }
   },
   "include": [],
