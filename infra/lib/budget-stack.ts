@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as dotenv from 'dotenv';
 import { Construct } from 'constructs';
 
 interface BudgetStackProps extends cdk.StackProps {

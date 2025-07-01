@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as dotenv from 'dotenv';
 import { Construct } from 'constructs';
 
 interface TransportInfraStackProps extends cdk.StackProps {
