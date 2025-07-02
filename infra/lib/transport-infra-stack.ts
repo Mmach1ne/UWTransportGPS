@@ -3,7 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as dotenv from 'dotenv';
+import * as kinesis from 'aws-cdk-lib/aws-kinesis';
 import { Construct } from 'constructs';
 
 interface TransportInfraStackProps extends cdk.StackProps {
@@ -14,6 +14,7 @@ export class TransportInfraStack extends cdk.Stack {
   public readonly dataBucket: s3.Bucket;
   public readonly deviceTable: dynamodb.Table;
   public readonly locationTable: dynamodb.Table;
+  public readonly gpsDataStream: kinesis.Stream;
 
   constructor(scope: Construct, id: string, props: TransportInfraStackProps) {
     super(scope, id, props);
@@ -44,7 +45,9 @@ export class TransportInfraStack extends cdk.Stack {
       partitionKey: { name: 'deviceId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
-      pointInTimeRecovery: environment === 'prod',
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: environment === 'prod',
+      },
       removalPolicy: environment === 'prod' 
         ? cdk.RemovalPolicy.RETAIN 
         : cdk.RemovalPolicy.DESTROY,
@@ -69,6 +72,31 @@ export class TransportInfraStack extends cdk.Stack {
       partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
     });
+
+    // Kinesis Data Stream for GPS data
+    this.gpsDataStream = new kinesis.Stream(this, 'GPSDataStream', {
+      streamName: `transport-gps-stream-${environment}`,
+      shardCount: environment === 'prod' ? 2 : 1,
+      retentionPeriod: cdk.Duration.hours(24),
+      encryption: kinesis.StreamEncryption.MANAGED,
+      streamMode: kinesis.StreamMode.PROVISIONED,
+    });
+
+    // Add CloudWatch alarms for Kinesis
+    this.gpsDataStream.metricGetRecordsSuccess().createAlarm(this, 'StreamReadAlarm', {
+      threshold: 0.95,
+      evaluationPeriods: 2,
+      treatMissingData: cdk.aws_cloudwatch.TreatMissingData.BREACHING,
+      alarmDescription: 'Alarm when stream read success rate drops below 95%',
+    });
+
+    // Grant IoT Core permission to write to Kinesis
+    const iotKinesisRole = new iam.Role(this, 'IoTKinesisRole', {
+      assumedBy: new iam.ServicePrincipal('iot.amazonaws.com'),
+      description: 'Role for IoT Core to write to Kinesis',
+    });
+
+    this.gpsDataStream.grantWrite(iotKinesisRole);
 
     // IoT Thing Type for GPS devices
     const deviceThingType = new iot.CfnThingType(this, 'GPSDeviceType', {
@@ -122,6 +150,21 @@ export class TransportInfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'IoTPolicyName', {
       value: iotPolicy.policyName!,
       description: 'Name of the IoT policy for devices',
+    });
+
+    new cdk.CfnOutput(this, 'KinesisStreamName', {
+      value: this.gpsDataStream.streamName,
+      description: 'Name of the Kinesis stream for GPS data',
+    });
+
+    new cdk.CfnOutput(this, 'KinesisStreamArn', {
+      value: this.gpsDataStream.streamArn,
+      description: 'ARN of the Kinesis stream',
+    });
+
+    new cdk.CfnOutput(this, 'IoTKinesisRoleArn', {
+      value: iotKinesisRole.roleArn,
+      description: 'ARN of the IAM role for IoT to write to Kinesis',
     });
 
     // Tag all resources
