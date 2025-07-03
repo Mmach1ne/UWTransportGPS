@@ -24,82 +24,13 @@ export class IngestionLambdaStack extends cdk.Stack {
       functionName: `transport-ingestion-${environment}`,
       runtime: lambda.Runtime.PYTHON_3_11,
       handler: 'index.handler',
-      code: lambda.Code.fromInline(`
-import json
-import boto3
-import os
-from datetime import datetime
-
-kinesis = boto3.client('kinesis')
-STREAM_NAME = os.environ['KINESIS_STREAM_NAME']
-
-def handler(event, context):
-    """
-    Validate and forward IoT GPS data to Kinesis
-    """
-    try:
-        # Parse the incoming message
-        if isinstance(event, str):
-            message = json.loads(event)
-        else:
-            message = event
-        
-        # Validate required fields
-        required_fields = ['busId', 'lat', 'lon', 'ts']
-        for field in required_fields:
-            if field not in message:
-                print(f"Missing required field: {field}")
-                return {
-                    'statusCode': 400,
-                    'body': f'Missing required field: {field}'
-                }
-        
-        # Validate data types and ranges
-        if not isinstance(message['lat'], (int, float)) or not -90 <= message['lat'] <= 90:
-            return {'statusCode': 400, 'body': 'Invalid latitude'}
-            
-        if not isinstance(message['lon'], (int, float)) or not -180 <= message['lon'] <= 180:
-            return {'statusCode': 400, 'body': 'Invalid longitude'}
-            
-        if not isinstance(message['ts'], int) or message['ts'] < 0:
-            return {'statusCode': 400, 'body': 'Invalid timestamp'}
-        
-        # Enrich the message
-        enriched_message = {
-            **message,
-            'processed_at': int(datetime.utcnow().timestamp() * 1000),
-            'processor_version': '1.0',
-            'valid': True
-        }
-        
-        # Send to Kinesis
-        response = kinesis.put_record(
-            StreamName=STREAM_NAME,
-            Data=json.dumps(enriched_message),
-            PartitionKey=message['busId']  # Use busId as partition key
-        )
-        
-        print(f"Successfully sent to Kinesis: {response['SequenceNumber']}")
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Successfully processed',
-                'sequenceNumber': response['SequenceNumber']
-            })
-        }
-        
-    except Exception as e:
-        print(f"Error processing message: {str(e)}")
-        return {
-            'statusCode': 500,
-            'body': f'Error: {str(e)}'
-        }
-      `),
+      code: lambda.Code.fromAsset('../services/ingestion-lambda/src'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       environment: {
         'KINESIS_STREAM_NAME': kinesisStream.streamName,
+        'AWS_XRAY_CONTEXT_MISSING': 'LOG_ERROR',
+        'AWS_XRAY_TRACING_NAME': `transport-ingestion-${environment}`,
       },
       logRetention: logs.RetentionDays.ONE_WEEK,
       tracing: lambda.Tracing.ACTIVE,
@@ -107,6 +38,15 @@ def handler(event, context):
 
     // Grant Lambda permission to write to Kinesis
     kinesisStream.grantWrite(this.ingestionLambda);
+
+    // Grant X-Ray permissions
+    this.ingestionLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'xray:PutTraceSegments',
+        'xray:PutTelemetryRecords',
+      ],
+      resources: ['*'],
+    }));
 
     // Create IoT Rule to trigger Lambda
     const iotRule = new iot.CfnTopicRule(this, 'GPSIngestionRule', {

@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+GPS Device Simulator for Transport Tracking System
+Publishes GPS coordinates via MQTT to AWS IoT Core
+"""
+
 import json
 import time
 import uuid
@@ -12,10 +18,12 @@ from awsiot import mqtt_connection_builder
 from dotenv import load_dotenv
 import os
 
+# Load environment variables
 load_dotenv()
 
 def haversine(start, end):
-    R = 6371000  # m
+    """Calculate distance between two lat/lon points using Haversine formula"""
+    R = 6371000  # Earth radius in meters
     φ1, λ1 = map(math.radians, start)
     φ2, λ2 = map(math.radians, end)
     dφ = φ2 - φ1
@@ -23,28 +31,30 @@ def haversine(start, end):
     a = math.sin(dφ/2)**2 + math.cos(φ1)*math.cos(φ2)*math.sin(dλ/2)**2
     return 2*R*math.atan2(math.sqrt(a), math.sqrt(1-a))
 
-class GPSDeviceSim:
-    def __init__(self, device_id: str, route_points: List[Tuple[float,float]],speed_kmh: float = 40.0):
+class GPSDeviceSimulator:
+    """Simulates a GPS device on a bus route"""
+    
+    def __init__(self, device_id: str, route_points: List[Tuple[float, float]], 
+                 speed_kmh: float = 30.0):
         self.device_id = device_id
         self.route_points = route_points
         self.speed_kmh = speed_kmh
         self.current_position_index = 0
         self.current_position = route_points[0]
+        
     def calculate_next_position(self, time_delta_seconds: float) -> Tuple[float, float]:
         """Calculate next position based on speed and time, updating self.current_position."""
         speed_ms = (self.speed_kmh * 1000) / 3600  # km/h → m/s
         remaining_time = time_delta_seconds
 
-        # Keep moving until we’ve used up the time slice
+        # Keep moving until we've used up the time slice
         while remaining_time > 0:
             # Next waypoint index (wrap around)
             next_idx = (self.current_position_index + 1) % len(self.route_points)
             start = self.current_position
             end = self.route_points[next_idx]
 
-            # Flat-earth distance for this segment
-            lat_diff = end[0] - start[0]
-            lon_diff = end[1] - start[1]
+            # Distance for this segment using haversine
             segment_dist = haversine(start, end)  # in meters
 
             # How far we *could* go in the remaining time
@@ -59,6 +69,8 @@ class GPSDeviceSim:
                 # loop again in case we have leftover time to continue onward
             else:
                 # We stop somewhere *between* start and end
+                lat_diff = end[0] - start[0]
+                lon_diff = end[1] - start[1]
                 frac = travel_dist / segment_dist
                 new_lat = start[0] + lat_diff * frac
                 new_lon = start[1] + lon_diff * frac
@@ -67,7 +79,6 @@ class GPSDeviceSim:
                 remaining_time = 0
 
         return self.current_position
-
     
     def get_telemetry(self) -> Dict:
         """Generate telemetry data"""
@@ -79,12 +90,12 @@ class GPSDeviceSim:
             "busId": self.device_id,
             "lat": round(self.current_position[0] + lat_noise, 6),
             "lon": round(self.current_position[1] + lon_noise, 6),
-            "ts": int(datetime.utcnow().timestamp() * 1000),  # Milliseconds
+            "ts": int(time.time() * 1000),  # Current time in milliseconds
             "speed": round(self.speed_kmh + random.uniform(-2, 2), 1),
             "heading": random.randint(0, 359),
             "accuracy": round(random.uniform(5, 15), 1)
         }
-    
+
 class AWSIoTClient:
     """Handles AWS IoT Core MQTT connection"""
     
@@ -135,20 +146,18 @@ class AWSIoTClient:
             disconnect_future.result()
             print("Disconnected!")
 
-            
-
 def create_sample_route() -> List[Tuple[float, float]]:
-    # Sample route around a campus/area
+    """Create a sample bus route around University of Waterloo campus"""
     return [
-    (43.4720, -80.5425),  #  1. NE corner, just north of University Station
-    (43.4725, -80.5450),  #  2. NW corner of Ring Road (near Columbia St)
-    (43.4705, -80.5480),  #  3. West side, by Westmount Rd
-    (43.4680, -80.5475),  #  4. SW corner of Ring Road
-    (43.4665, -80.5430),  #  5. South side (near Seagram Dr)
-    (43.4675, -80.5385),  #  6. SE corner of Ring Road
-    (43.4700, -80.5365),  #  7. East side (near University Ave)
-    (43.4715, -80.5380),  #  8. NE corner approaching back to station
-    (43.4720, -80.5425),  #  9. Loop closed at start
+        (43.4720, -80.5425),  #  1. NE corner, just north of University Station
+        (43.4725, -80.5450),  #  2. NW corner of Ring Road (near Columbia St)
+        (43.4705, -80.5480),  #  3. West side, by Westmount Rd
+        (43.4680, -80.5475),  #  4. SW corner of Ring Road
+        (43.4665, -80.5430),  #  5. South side (near Seagram Dr)
+        (43.4675, -80.5385),  #  6. SE corner of Ring Road
+        (43.4700, -80.5365),  #  7. East side (near University Ave)
+        (43.4715, -80.5380),  #  8. NE corner approaching back to station
+        (43.4720, -80.5425),  #  9. Loop closed at start
     ]
 
 @click.command()
@@ -173,7 +182,7 @@ def main(device_id, endpoint, cert, key, ca, interval, speed):
     
     # Create simulator
     route = create_sample_route()
-    simulator = GPSDeviceSim(device_id, route, speed)
+    simulator = GPSDeviceSimulator(device_id, route, speed)
     
     # Create IoT client
     topic = f"transport/dev/{device_id}/location"

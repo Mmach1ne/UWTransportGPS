@@ -1,0 +1,55 @@
+{
+  "services": {
+    "transport-iot": {
+      "type": "AWS::IoT",
+      "displayName": "IoT Devices"
+    },
+    "transport-ingestion": {
+      "type": "AWS::Lambda::Function",
+      "displayName": "Ingestion Lambda"
+    },
+    "transport-kinesis": {
+      "type": "AWS::Kinesis::Stream",
+      "displayName": "GPS Data Stream"
+    },
+    "transport-trackstore": {
+      "type": "AWS::ECS::Service",
+      "displayName": "TrackStore Service"
+    },
+    "transport-geo": {
+      "type": "AWS::Lambda::Function",
+      "displayName": "Geo Service"
+    },
+    "transport-timestream": {
+      "type": "AWS::Timestream",
+      "displayName": "Location Database"
+    }
+  },
+  "edges": [
+    {
+      "from": "transport-iot",
+      "to": "transport-ingestion",
+      "annotation": "GPS Data"
+    },
+    {
+      "from": "transport-ingestion",
+      "to": "transport-kinesis",
+      "annotation": "Validated Data"
+    },
+    {
+      "from": "transport-kinesis",
+      "to": "transport-trackstore",
+      "annotation": "Stream Records"
+    },
+    {
+      "from": "transport-trackstore",
+      "to": "transport-timestream",
+      "annotation": "Store Locations"
+    },
+    {
+      "from": "transport-kinesis",
+      "to": "transport-geo",
+      "annotation": "Location Updates"
+    }
+  ]
+}

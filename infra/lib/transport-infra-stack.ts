@@ -82,6 +82,16 @@ export class TransportInfraStack extends cdk.Stack {
       streamMode: kinesis.StreamMode.PROVISIONED,
     });
 
+    // Enable X-Ray tracing for Kinesis (requires enhanced fan-out consumers)
+    const cfnStream = this.gpsDataStream.node.defaultChild as kinesis.CfnStream;
+    cfnStream.streamModeDetails = {
+      streamMode: 'PROVISIONED',
+    };
+
+    // Add tags for X-Ray service map
+    cdk.Tags.of(this.gpsDataStream).add('X-Ray', 'Enabled');
+    cdk.Tags.of(this.gpsDataStream).add('Service', 'GPSDataStream');
+
     // Add CloudWatch alarms for Kinesis
     this.gpsDataStream.metricGetRecordsSuccess().createAlarm(this, 'StreamReadAlarm', {
       threshold: 0.95,
