@@ -149,15 +149,26 @@ class AWSIoTClient:
 def create_sample_route() -> List[Tuple[float, float]]:
     """Create a sample bus route around University of Waterloo campus"""
     return [
-        (43.4720, -80.5425),  #  1. NE corner, just north of University Station
-        (43.4725, -80.5450),  #  2. NW corner of Ring Road (near Columbia St)
-        (43.4705, -80.5480),  #  3. West side, by Westmount Rd
-        (43.4680, -80.5475),  #  4. SW corner of Ring Road
-        (43.4665, -80.5430),  #  5. South side (near Seagram Dr)
-        (43.4675, -80.5385),  #  6. SE corner of Ring Road
-        (43.4700, -80.5365),  #  7. East side (near University Ave)
-        (43.4715, -80.5380),  #  8. NE corner approaching back to station
-        (43.4720, -80.5425),  #  9. Loop closed at start
+        # University Station (Ring Road East, by Columbia Street)
+        (43.472215, -80.544134),
+        # South along Ring Road toward Environment 3
+        (43.470803, -80.544892),
+        # Curve around Earth Sciences & Engineering buildings
+        (43.469955, -80.543523),
+        # Down past Dana Porter Library (southwest corner)
+        (43.468640, -80.542987),
+        # Turn north between SLC and Hagey Hall
+        (43.468870, -80.540970),
+        # Past DC Lot and Health Sciences to University Avenue
+        (43.469952, -80.539623),
+        # Up past Tatham Centre toward Waterloo Stadium
+        (43.471008, -80.539823),
+        # Curve east by Architecture and the Davis Centre
+        (43.472198, -80.540678),
+        # Back up to Physics & Astronomy and University Station
+        (43.472430, -80.542765),
+        # Close the loop
+        (43.472215, -80.544134),
     ]
 
 @click.command()
