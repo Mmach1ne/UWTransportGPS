@@ -4,6 +4,7 @@ import * as cdk from 'aws-cdk-lib';
 import { TransportInfraStack } from '../lib/transport-infra-stack';
 import { BudgetStack } from '../lib/budget-stack';
 import { IngestionLambdaStack } from '../lib/ingestion-lambda-stack';
+import { TrackStoreStack } from '../lib/trackstore-stack';
 
 const app = new cdk.App();
 
@@ -45,6 +46,17 @@ new IngestionLambdaStack(app, `TransportIngestion-${env}`, {
   kinesisStream: infraStack.gpsDataStream,
   stackName: `transport-ingestion-${env}`,
   description: `Transport GPS Ingestion Lambda for ${env} environment`,
+});
+
+// Create TrackStore service stack
+new TrackStoreStack(app, `TrackStore-${env}`, {
+  env: awsEnv,
+  environment: env,
+  kinesisStream: infraStack.gpsDataStream,
+  deviceTable: infraStack.deviceTable,
+  locationTable: infraStack.locationTable,
+  stackName: `trackstore-${env}`,
+  description: `TrackStore service for ${env} environment`,
 });
 
 app.synth();
