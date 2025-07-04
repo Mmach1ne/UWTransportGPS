@@ -1,0 +1,10 @@
+{
+  "name": "@transport/geo-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'No build needed for Python'",
+    "test": "python -m pytest tests/",
+    "deploy": "cd ../../infra && yarn cdk deploy TransportGeo-dev --context env=dev"
+  }
+}
