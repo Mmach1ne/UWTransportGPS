@@ -15,12 +15,65 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "deploy:dev": "turbo run deploy --filter=@transport/infra -- --context dev",
-    "deploy:prod": "turbo run deploy --filter=@transport/infra -- --context prod"
+    "clean": "turbo run clean",
+    "deploy:dev": "turbo run deploy --filter=@transport/infra -- --context env=dev",
+    "deploy:prod": "turbo run deploy --filter=@transport/infra -- --context env=prod",
+    "deploy:infra:dev": "cd infra && npm run deploy:dev",
+    "deploy:infra:prod": "cd infra && npm run deploy:prod",
+    "deploy:trackstore:dev": "cd infra && npm run deploy:dev -- --exclusively TrackStore-dev",
+    "deploy:trackstore:prod": "cd infra && npm run deploy:prod -- --exclusively TrackStore-prod",
+    "deploy:geofence:dev": "cd services/geofence-alerts && npm run build && cd ../../infra && npm run deploy:dev -- --exclusively GeofenceAlerts-dev",
+    "deploy:geofence:prod": "cd services/geofence-alerts && npm run build && cd ../../infra && npm run deploy:prod -- --exclusively GeofenceAlerts-prod",
+    "setup:env": "cp .env.template .env && cp device-sim/.env.template device-sim/.env && cp services/geofence-alerts/.env.template services/geofence-alerts/.env && cp services/trackstore/.env.template services/trackstore/.env",
+    "setup:geofences": "cd services/geofence-alerts && npm run setup:sample-data",
+    "setup:device": "cd device-sim && python setup_device.py --device-id bus-001",
+    "start:simulator": "cd device-sim && python simulator.py",
+    "start:geofence": "cd services/geofence-alerts && npm run dev",
+    "start:trackstore": "cd services/trackstore && npm run dev",
+    "start:frontend": "cd frontend/web && npm run dev",
+    "test:all": "turbo run test",
+    "test:geofence": "cd services/geofence-alerts && npm run test:api",
+    "test:trackstore": "cd services/trackstore && python test_api.py",
+    "docker:build:geofence": "cd services/geofence-alerts && docker build -t geofence-alerts .",
+    "docker:build:trackstore": "cd services/trackstore && docker build -t trackstore .",
+    "docker:run:geofence": "cd services/geofence-alerts && docker run -p 3001:3001 --env-file .env geofence-alerts",
+    "docker:run:trackstore": "cd services/trackstore && docker run -p 8000:8000 --env-file .env trackstore",
+    "logs:geofence:dev": "aws logs tail /ecs/geofence-service-dev --follow",
+    "logs:trackstore:dev": "aws logs tail /ecs/trackstore-dev --follow",
+    "logs:ingestion:dev": "aws logs tail /aws/lambda/transport-ingestion-dev --follow",
+    "cdk:bootstrap": "cd infra && npm run bootstrap",
+    "cdk:synth": "cd infra && npm run synth",
+    "cdk:diff": "cd infra && npm run diff",
+    "cdk:destroy:dev": "cd infra && cdk destroy --context env=dev --all",
+    "cdk:destroy:prod": "cd infra && cdk destroy --context env=prod --all",
+    "postinstall": "husky install || true"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "turbo": "^1.10.0",
-    "typescript": "^5"
+    "@types/node": "^20.8.10",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.52.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.0.2",
+    "prettier": "^3.0.3",
+    "turbo": "^1.10.16",
+    "typescript": "^5.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
   }
 }
