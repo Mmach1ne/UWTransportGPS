@@ -1,22 +1,25 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import morgan from 'morgan';
+import express, { Request, Response, NextFunction, Application } from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import { GeofenceManager } from './geofenceManager';
 import { ETACalculator } from './etaCalculator';
 import { NotificationService } from './notificationService';
 import { config } from './config';
-import { logger } from './logger';
+import { logger } from './types/logger';
 import { ExtendedWebSocket, WebSocketMessage } from './types';
 
-const app = express();
+// Import middleware modules directly
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const morgan = require('morgan');
+
+// Explicitly type the Express app
+const app: Application = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Middleware
+// Apply middleware - use require() imports to avoid type issues
 app.use(helmet({
   contentSecurityPolicy: false
 }));
@@ -29,10 +32,14 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Import the optimized GeofenceMonitor
+import { GeofenceMonitor } from './geofenceMonitor';
+
 // Initialize services
 const geofenceManager = new GeofenceManager();
 const etaCalculator = new ETACalculator();
 const notificationService = new NotificationService(wss);
+const geofenceMonitor = new GeofenceMonitor(notificationService, geofenceManager, etaCalculator);
 
 // WebSocket connection handling
 wss.on('connection', (ws, request) => {
@@ -130,13 +137,13 @@ function handleWebSocketMessage(ws: ExtendedWebSocket, data: any) {
 }
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   logger.error('Express error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -146,8 +153,116 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Monitoring endpoint for optimization stats
+app.get('/api/monitoring/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = {
+      etaCalculator: etaCalculator.getCacheStats(),
+      optimization: {
+        config: {
+          maxApiDistance: 5000,
+          cacheEnabled: true,
+          smartApiUsage: true
+        },
+        estimates: estimateMonthlyApiCalls(50, 8), // Assuming 50 vehicles, 8 hours/day
+        recommendations: getOptimizationRecommendations(
+          etaCalculator.getCacheStats().apiCallsPerMinute * 60 * 24 * 30
+        )
+      },
+      system: {
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        activeWebSockets: wss.clients.size
+      }
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    logger.error('Failed to get monitoring stats:', error);
+    res.status(500).json({ error: 'Failed to get monitoring stats' });
+  }
+});
+
+// Cost estimation endpoint
+app.get('/api/monitoring/cost-estimate', async (req: Request, res: Response) => {
+  try {
+    const vehicleCount = parseInt(req.query.vehicles as string) || 50;
+    const hoursPerDay = parseInt(req.query.hours as string) || 8;
+    
+    const estimate = estimateMonthlyApiCalls(vehicleCount, hoursPerDay);
+    
+    res.json({
+      parameters: {
+        vehicleCount,
+        hoursPerDay
+      },
+      estimate,
+      currentUsage: {
+        apiCallsPerMinute: etaCalculator.getCacheStats().apiCallsPerMinute,
+        projectedMonthlyCalls: etaCalculator.getCacheStats().apiCallsPerMinute * 60 * 24 * 30
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to calculate cost estimate:', error);
+    res.status(500).json({ error: 'Failed to calculate cost estimate' });
+  }
+});
+app.get('/api/monitoring/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = {
+      etaCalculator: etaCalculator.getCacheStats(),
+      optimization: {
+        config: {
+          maxApiDistance: config.optimization?.maxApiDistance || 5000,
+          cacheEnabled: true,
+          smartApiUsage: true
+        },
+        estimates: estimateMonthlyApiCalls(50, 8), // Assuming 50 vehicles, 8 hours/day
+        recommendations: getOptimizationRecommendations(
+          etaCalculator.getCacheStats().apiCallsPerMinute * 60 * 24 * 30
+        )
+      },
+      system: {
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        activeWebSockets: wss.clients.size
+      }
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    logger.error('Failed to get monitoring stats:', error);
+    res.status(500).json({ error: 'Failed to get monitoring stats' });
+  }
+});
+
+// Cost estimation endpoint
+app.get('/api/monitoring/cost-estimate', async (req: Request, res: Response) => {
+  try {
+    const vehicleCount = parseInt(req.query.vehicles as string) || 50;
+    const hoursPerDay = parseInt(req.query.hours as string) || 8;
+    
+    const estimate = estimateMonthlyApiCalls(vehicleCount, hoursPerDay);
+    
+    res.json({
+      parameters: {
+        vehicleCount,
+        hoursPerDay
+      },
+      estimate,
+      currentUsage: {
+        apiCallsPerMinute: etaCalculator.getCacheStats().apiCallsPerMinute,
+        projectedMonthlyCalls: etaCalculator.getCacheStats().apiCallsPerMinute * 60 * 24 * 30
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to calculate cost estimate:', error);
+    res.status(500).json({ error: 'Failed to calculate cost estimate' });
+  }
+});
+
 // API Routes
-app.get('/api/geofences', async (req, res) => {
+app.get('/api/geofences', async (req: Request, res: Response) => {
   try {
     const geofences = await geofenceManager.getAllGeofences();
     res.json(geofences);
@@ -157,7 +272,7 @@ app.get('/api/geofences', async (req, res) => {
   }
 });
 
-app.post('/api/geofences', async (req, res) => {
+app.post('/api/geofences', async (req: Request, res: Response) => {
   try {
     const geofence = await geofenceManager.createGeofence(req.body);
     logger.info('Created geofence:', { id: geofence.id, name: geofence.name });
@@ -168,11 +283,12 @@ app.post('/api/geofences', async (req, res) => {
   }
 });
 
-app.put('/api/geofences/:id', async (req, res) => {
+app.put('/api/geofences/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const geofence = await geofenceManager.updateGeofence(req.params.id, req.body);
     if (!geofence) {
-      return res.status(404).json({ error: 'Geofence not found' });
+      res.status(404).json({ error: 'Geofence not found' });
+      return;
     }
     logger.info('Updated geofence:', { id: geofence.id });
     res.json(geofence);
@@ -182,7 +298,7 @@ app.put('/api/geofences/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/geofences/:id', async (req, res) => {
+app.delete('/api/geofences/:id', async (req: Request, res: Response) => {
   try {
     await geofenceManager.deleteGeofence(req.params.id);
     logger.info('Deleted geofence:', { id: req.params.id });
@@ -193,12 +309,13 @@ app.delete('/api/geofences/:id', async (req, res) => {
   }
 });
 
-app.get('/api/eta/:vehicleId/:geofenceId', async (req, res) => {
+app.get('/api/eta/:vehicleId/:geofenceId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { vehicleId, geofenceId } = req.params;
     const eta = await etaCalculator.calculateETA(vehicleId, geofenceId);
     if (!eta) {
-      return res.status(404).json({ error: 'Unable to calculate ETA' });
+      res.status(404).json({ error: 'Unable to calculate ETA' });
+      return;
     }
     res.json(eta);
   } catch (error) {
@@ -207,7 +324,7 @@ app.get('/api/eta/:vehicleId/:geofenceId', async (req, res) => {
   }
 });
 
-app.get('/api/alerts', async (req, res) => {
+app.get('/api/alerts', async (req: Request, res: Response) => {
   try {
     const alerts = await notificationService.getActiveAlerts();
     res.json(alerts);
@@ -217,13 +334,14 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
-app.post('/api/alerts/:id/acknowledge', async (req, res) => {
+app.post('/api/alerts/:id/acknowledge', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { userId } = req.body;
     const success = await notificationService.acknowledgeAlert(id, userId);
     if (!success) {
-      return res.status(404).json({ error: 'Alert not found' });
+      res.status(404).json({ error: 'Alert not found' });
+      return;
     }
     logger.info('Alert acknowledged:', { alertId: id, userId });
     res.json({ message: 'Alert acknowledged' });
@@ -267,7 +385,7 @@ async function checkGeofenceAlerts(vehicle: any) {
       // Additional geofence logic would go here
     }
   } catch (error) {
-    logger.error('Error checking geofence alerts for vehicle:', vehicle.id, error);
+    logger.error('Error checking geofence alerts for vehicle:', error);
   }
 }
 
@@ -291,6 +409,11 @@ notificationService.startCleanupTask();
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
+  
+  // Clear intervals
+  clearInterval(locationProcessingInterval);
+  clearInterval(cleanupInterval);
+  
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
@@ -299,6 +422,11 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully');
+  
+  // Clear intervals
+  clearInterval(locationProcessingInterval);
+  clearInterval(cleanupInterval);
+  
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);

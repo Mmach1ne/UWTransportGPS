@@ -18,23 +18,25 @@ interface TrackStoreStackProps extends cdk.StackProps {
 export class TrackStoreStack extends cdk.Stack {
   public readonly service: ecs.FargateService;
   public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
+  public readonly vpc: ec2.Vpc;
+  public readonly cluster: ecs.Cluster;
 
   constructor(scope: Construct, id: string, props: TrackStoreStackProps) {
     super(scope, id, props);
 
     const { environment, kinesisStream, deviceTable, locationTable } = props;
 
-    // Create VPC (or use existing)
-    const vpc = new ec2.Vpc(this, 'TrackStoreVPC', {
+    // Create VPC (or use existing) - expose as public property
+    this.vpc = new ec2.Vpc(this, 'TrackStoreVPC', {
       vpcName: `trackstore-vpc-${environment}`,
       maxAzs: 2,
       natGateways: environment === 'prod' ? 2 : 1,
     });
 
-    // Create ECS Cluster
-    const cluster = new ecs.Cluster(this, 'TrackStoreCluster', {
+    // Create ECS Cluster - expose as public property
+    this.cluster = new ecs.Cluster(this, 'TrackStoreCluster', {
       clusterName: `trackstore-cluster-${environment}`,
-      vpc,
+      vpc: this.vpc,
       containerInsights: true,
     });
 
@@ -95,14 +97,14 @@ export class TrackStoreStack extends cdk.Stack {
     // Create ALB
     this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'TrackStoreALB', {
       loadBalancerName: `trackstore-alb-${environment}`,
-      vpc,
+      vpc: this.vpc,
       internetFacing: true,
     });
 
     // Create Fargate Service
     this.service = new ecs.FargateService(this, 'TrackStoreService', {
       serviceName: `trackstore-${environment}`,
-      cluster,
+      cluster: this.cluster,
       taskDefinition,
       desiredCount: environment === 'prod' ? 2 : 1,
       assignPublicIp: true,
@@ -123,7 +125,7 @@ export class TrackStoreStack extends cdk.Stack {
 
     // Create target group
     const targetGroup = new elbv2.ApplicationTargetGroup(this, 'TrackStoreTargetGroup', {
-      vpc,
+      vpc: this.vpc,
       port: 8000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [this.service],
@@ -153,6 +155,18 @@ export class TrackStoreStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ServiceURL', {
       value: `http://${this.loadBalancer.loadBalancerDnsName}`,
       description: 'TrackStore Service URL',
+    });
+
+    new cdk.CfnOutput(this, 'VpcId', {
+      value: this.vpc.vpcId,
+      description: 'VPC ID for TrackStore',
+      exportName: `${this.stackName}-VpcId`,
+    });
+
+    new cdk.CfnOutput(this, 'ClusterName', {
+      value: this.cluster.clusterName,
+      description: 'ECS Cluster name for TrackStore',
+      exportName: `${this.stackName}-ClusterName`,
     });
 
     // Tags

@@ -1,81 +1,182 @@
 // services/geofence-alerts/src/etaCalculator.ts
 import AWS from 'aws-sdk';
 import axios from 'axios';
+import { logger } from './types/logger';
+import { ETAResult, VehicleLocation } from './types';
+import { GeofenceManager } from './geofenceManager';
+import { config } from './config';
 
-export interface VehicleLocation {
-  id: string;
-  latitude: number;
-  longitude: number;
-  speed: number; // km/h
-  heading: number;
-  timestamp: Date;
+// Cache entry type
+interface CacheEntry {
+  result: ETAResult;
+  timestamp: number;
+  key: string;
 }
 
-export interface ETAResult {
-  estimatedArrivalMinutes: number;
-  distanceMeters: number;
-  route?: {
-    duration: number;
-    distance: number;
-    geometry?: any;
-  };
-  confidence: 'high' | 'medium' | 'low';
-  method: 'gps_projection' | 'routing_api' | 'historical_average';
+// Route cache type
+interface RouteCache {
+  [key: string]: CacheEntry;
 }
 
 export class ETACalculator {
   private dynamodb: AWS.DynamoDB.DocumentClient;
   private locationTableName: string;
   private routingApiKey?: string;
+  private geofenceManager: GeofenceManager;
+  
+  // Caching
+  private routeCache: RouteCache = {};
+  private readonly CACHE_TTL_MS = 60000; // 60 seconds
+  private readonly MAX_CACHE_SIZE = 1000; // Prevent memory issues
+  
+  // Optimization thresholds
+  private readonly MAX_DISTANCE_FOR_API = 5000; // 5km - only use API if closer
+  private readonly MIN_DISTANCE_FOR_API = 100; // 100m - too close, don't bother with API
+  private readonly HEADING_TOLERANCE = 45; // degrees
+  private readonly MIN_SPEED_KMH = 5; // Below this, vehicle is considered stopped
+  
+  // Rate limiting
+  private apiCallCount = 0;
+  private apiCallResetTime = Date.now();
+  private readonly MAX_API_CALLS_PER_MINUTE = 500; // Stay under Mapbox limit
 
   constructor() {
     this.dynamodb = new AWS.DynamoDB.DocumentClient();
     this.locationTableName = process.env.LOCATION_TABLE_NAME || 'transport-locations-dev';
-    this.routingApiKey = process.env.MAPBOX_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    
+    if (process.env.MAPBOX_API_KEY) {
+      this.routingApiKey = process.env.MAPBOX_API_KEY;
+      logger.info('ETA Calculator initialized with Mapbox');
+    } else {
+      logger.warn('No Mapbox API key configured, will use GPS projection only');
+    }
+
+    this.geofenceManager = new GeofenceManager();
+    
+    // Clean up cache periodically
+    setInterval(() => this.cleanupCache(), 120000); // Every 2 minutes
   }
 
   async calculateETA(vehicleId: string, geofenceId: string): Promise<ETAResult | null> {
     try {
       // Get current vehicle location
-      const currentLocation = await this.getCurrentVehicleLocation(vehicleId);
-      if (!currentLocation) {
-        console.log(`No current location found for vehicle ${vehicleId}`);
+      const vehicleLocation = await this.getCurrentVehicleLocation(vehicleId);
+      if (!vehicleLocation) {
+        logger.warn(`No current location found for vehicle ${vehicleId}`);
         return null;
       }
 
       // Get geofence details
-      const geofence = await this.getGeofenceLocation(geofenceId);
+      const geofence = await this.geofenceManager.getGeofence(geofenceId);
       if (!geofence) {
-        console.log(`Geofence ${geofenceId} not found`);
+        logger.warn(`Geofence ${geofenceId} not found`);
         return null;
       }
 
-      // Try different ETA calculation methods in order of preference
-      let eta: ETAResult | null = null;
+      // Calculate basic distance first
+      const distance = this.calculateDistance(
+        vehicleLocation.latitude,
+        vehicleLocation.longitude,
+        geofence.coordinates.latitude,
+        geofence.coordinates.longitude
+      );
 
-      // Method 1: Use routing API if available
-      if (this.routingApiKey) {
-        eta = await this.calculateETAWithRoutingAPI(currentLocation, geofence);
+      // Check cache first
+      const cacheKey = this.getCacheKey(vehicleLocation, geofence.coordinates);
+      const cachedResult = this.getFromCache(cacheKey);
+      if (cachedResult) {
+        logger.debug(`Cache hit for ${vehicleId} -> ${geofenceId}`);
+        return cachedResult;
       }
 
-      // Method 2: GPS projection based on current speed and direction
-      if (!eta || eta.confidence === 'low') {
-        const gpsETA = await this.calculateETAWithGPSProjection(currentLocation, geofence);
-        if (!eta || (gpsETA && gpsETA.confidence === 'high')) {
-          eta = gpsETA;
+      // Determine best calculation method based on distance and conditions
+      let result: ETAResult | null = null;
+
+      if (distance < this.MIN_DISTANCE_FOR_API) {
+        // Very close - vehicle has basically arrived
+        result = {
+          estimatedArrivalMinutes: 0,
+          distanceMeters: Math.round(distance),
+          confidence: 'high',
+          method: 'gps_projection'
+        };
+      } else if (distance > this.MAX_DISTANCE_FOR_API) {
+        // Too far - use simple calculation to save API calls
+        result = await this.calculateETAWithGPSProjection(vehicleLocation, geofence.coordinates);
+      } else if (this.shouldUseRoutingAPI(vehicleLocation, geofence.coordinates, distance)) {
+        // Within optimal range and conditions are good for API call
+        result = await this.calculateETAWithRoutingAPI(vehicleLocation, geofence.coordinates);
+        
+        // Fall back to GPS projection if API fails
+        if (!result) {
+          result = await this.calculateETAWithGPSProjection(vehicleLocation, geofence.coordinates);
         }
+      } else {
+        // Use GPS projection (vehicle not heading towards geofence, stopped, etc.)
+        result = await this.calculateETAWithGPSProjection(vehicleLocation, geofence.coordinates);
       }
 
-      // Method 3: Historical average as fallback
-      if (!eta) {
-        eta = await this.calculateETAFromHistoricalData(vehicleId, geofenceId);
+      // Cache the result if it's good
+      if (result && result.confidence !== 'low') {
+        this.addToCache(cacheKey, result);
       }
 
-      return eta;
+      return result;
     } catch (error) {
-      console.error('Error calculating ETA:', error);
+      logger.error('Error calculating ETA:', error);
       return null;
     }
+  }
+
+  private shouldUseRoutingAPI(
+    vehicle: VehicleLocation, 
+    destination: { latitude: number; longitude: number },
+    distance: number
+  ): boolean {
+    // Check rate limiting
+    if (!this.checkRateLimit()) {
+      logger.warn('API rate limit reached, using GPS projection');
+      return false;
+    }
+
+    // Don't use API if vehicle is stopped
+    if (vehicle.speed < this.MIN_SPEED_KMH) {
+      return false;
+    }
+
+    // Check if vehicle is heading towards destination
+    const bearing = this.calculateBearing(
+      vehicle.latitude,
+      vehicle.longitude,
+      destination.latitude,
+      destination.longitude
+    );
+
+    const headingDifference = Math.abs(bearing - vehicle.heading);
+    const normalizedDifference = headingDifference > 180 ? 360 - headingDifference : headingDifference;
+    
+    if (normalizedDifference > this.HEADING_TOLERANCE) {
+      logger.debug(`Vehicle ${vehicle.id} not heading towards geofence (${normalizedDifference}° off)`);
+      return false;
+    }
+
+    return true;
+  }
+
+  private checkRateLimit(): boolean {
+    const now = Date.now();
+    
+    // Reset counter every minute
+    if (now - this.apiCallResetTime > 60000) {
+      this.apiCallCount = 0;
+      this.apiCallResetTime = now;
+    }
+
+    if (this.apiCallCount >= this.MAX_API_CALLS_PER_MINUTE) {
+      return false;
+    }
+
+    return true;
   }
 
   private async getCurrentVehicleLocation(vehicleId: string): Promise<VehicleLocation | null> {
@@ -86,7 +187,7 @@ export class ETACalculator {
         ExpressionAttributeValues: {
           ':deviceId': vehicleId
         },
-        ScanIndexForward: false, // Get most recent first
+        ScanIndexForward: false,
         Limit: 1
       }).promise();
 
@@ -104,27 +205,7 @@ export class ETACalculator {
         timestamp: new Date(item.timestamp)
       };
     } catch (error) {
-      console.error('Error fetching vehicle location:', error);
-      return null;
-    }
-  }
-
-  private async getGeofenceLocation(geofenceId: string): Promise<{ latitude: number; longitude: number } | null> {
-    try {
-      const dynamodb = new AWS.DynamoDB.DocumentClient();
-      const result = await dynamodb.get({
-        TableName: process.env.GEOFENCE_TABLE_NAME || 'transport-geofences-dev',
-        Key: { id: geofenceId }
-      }).promise();
-
-      if (!result.Item) return null;
-
-      return {
-        latitude: result.Item.coordinates.latitude,
-        longitude: result.Item.coordinates.longitude
-      };
-    } catch (error) {
-      console.error('Error fetching geofence location:', error);
+      logger.error('Error fetching vehicle location:', error);
       return null;
     }
   }
@@ -134,38 +215,51 @@ export class ETACalculator {
     to: { latitude: number; longitude: number }
   ): Promise<ETAResult | null> {
     try {
-      // Example using Mapbox Directions API
-      if (this.routingApiKey && process.env.MAPBOX_API_KEY) {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
-        
-        const response = await axios.get(url, {
-          params: {
-            access_token: this.routingApiKey,
-            geometries: 'geojson',
-            overview: 'simplified'
-          },
-          timeout: 5000 // 5 second timeout
-        });
+      if (!this.routingApiKey) {
+        return null;
+      }
 
-        if (response.data.routes && response.data.routes.length > 0) {
-          const route = response.data.routes[0];
-          return {
-            estimatedArrivalMinutes: Math.round(route.duration / 60),
-            distanceMeters: Math.round(route.distance),
-            route: {
-              duration: route.duration,
-              distance: route.distance,
-              geometry: route.geometry
-            },
-            confidence: 'high',
-            method: 'routing_api'
-          };
-        }
+      // Increment API call counter
+      this.apiCallCount++;
+
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
+      
+      const response = await axios.get(url, {
+        params: {
+          access_token: this.routingApiKey,
+          geometries: 'geojson',
+          overview: 'simplified',
+          alternatives: false // Save API calls by not requesting alternatives
+        },
+        timeout: 3000 // Shorter timeout for better responsiveness
+      });
+
+      if (response.data.routes && response.data.routes.length > 0) {
+        const route = response.data.routes[0];
+        logger.debug(`Mapbox API call successful for vehicle ${from.id}`);
+        
+        return {
+          estimatedArrivalMinutes: Math.round(route.duration / 60),
+          distanceMeters: Math.round(route.distance),
+          route: {
+            duration: route.duration,
+            distance: route.distance,
+            geometry: route.geometry
+          },
+          confidence: 'high',
+          method: 'routing_api'
+        };
       }
 
       return null;
-    } catch (error) {
-      console.error('Error with routing API:', error);
+    } catch (error: any) {
+      if (error.response?.status === 429) {
+        logger.error('Mapbox rate limit hit');
+        // Disable API calls for a minute
+        this.apiCallCount = this.MAX_API_CALLS_PER_MINUTE;
+      } else {
+        logger.error('Mapbox API error:', error.message);
+      }
       return null;
     }
   }
@@ -173,101 +267,115 @@ export class ETACalculator {
   private async calculateETAWithGPSProjection(
     from: VehicleLocation,
     to: { latitude: number; longitude: number }
-  ): Promise<ETAResult | null> {
-    try {
-      const distance = this.calculateDistance(
-        from.latitude,
-        from.longitude,
-        to.latitude,
-        to.longitude
-      );
+  ): Promise<ETAResult> {
+    const distance = this.calculateDistance(
+      from.latitude,
+      from.longitude,
+      to.latitude,
+      to.longitude
+    );
 
-      // If vehicle is not moving, can't calculate ETA with projection
-      if (from.speed <= 5) { // Less than 5 km/h considered stationary
-        return {
-          estimatedArrivalMinutes: Math.round(distance / 1000 / 30 * 60), // Assume 30 km/h average
-          distanceMeters: distance,
-          confidence: 'low',
-          method: 'gps_projection'
-        };
-      }
+    // If vehicle is stopped, use average speed
+    const effectiveSpeed = from.speed > this.MIN_SPEED_KMH ? from.speed : 25; // 25 km/h average
+    
+    // Calculate bearing to destination
+    const bearing = this.calculateBearing(
+      from.latitude,
+      from.longitude,
+      to.latitude,
+      to.longitude
+    );
 
-      // Calculate bearing to destination
-      const bearing = this.calculateBearing(
-        from.latitude,
-        from.longitude,
-        to.latitude,
-        to.longitude
-      );
+    // Check if vehicle is heading towards destination
+    const headingDifference = Math.abs(bearing - from.heading);
+    const normalizedDifference = headingDifference > 180 ? 360 - headingDifference : headingDifference;
+    const isHeadingTowards = normalizedDifference <= this.HEADING_TOLERANCE;
 
-      // Check if vehicle is heading towards destination
-      const headingDifference = Math.abs(bearing - from.heading);
-      const isHeadingTowards = headingDifference <= 45 || headingDifference >= 315;
+    // Adjust speed based on heading
+    let adjustedSpeed = effectiveSpeed;
+    if (!isHeadingTowards && from.speed > this.MIN_SPEED_KMH) {
+      // Vehicle is moving but not towards destination, assume it needs to turn around
+      adjustedSpeed = effectiveSpeed * 0.7; // 30% penalty for wrong direction
+    }
 
-      const speedMs = (from.speed * 1000) / 3600; // Convert km/h to m/s
-      const etaSeconds = distance / speedMs;
+    const speedMs = (adjustedSpeed * 1000) / 3600; // Convert km/h to m/s
+    const etaSeconds = distance / speedMs;
 
-      let confidence: 'high' | 'medium' | 'low' = 'medium';
-      if (isHeadingTowards && from.speed > 10) {
-        confidence = 'high';
-      } else if (!isHeadingTowards || from.speed < 5) {
-        confidence = 'low';
-      }
+    // Determine confidence based on conditions
+    let confidence: 'high' | 'medium' | 'low' = 'medium';
+    if (isHeadingTowards && from.speed > 10 && distance < 2000) {
+      confidence = 'high';
+    } else if (!isHeadingTowards || from.speed < this.MIN_SPEED_KMH || distance > 4000) {
+      confidence = 'low';
+    }
 
-      return {
-        estimatedArrivalMinutes: Math.round(etaSeconds / 60),
-        distanceMeters: distance,
-        confidence,
-        method: 'gps_projection'
-      };
-    } catch (error) {
-      console.error('Error with GPS projection:', error);
+    return {
+      estimatedArrivalMinutes: Math.round(etaSeconds / 60),
+      distanceMeters: Math.round(distance),
+      confidence,
+      method: 'gps_projection'
+    };
+  }
+
+  // Cache management methods
+  private getCacheKey(from: VehicleLocation, to: { latitude: number; longitude: number }): string {
+    // Round coordinates to 4 decimal places (about 11m precision)
+    const fromLat = from.latitude.toFixed(4);
+    const fromLng = from.longitude.toFixed(4);
+    const toLat = to.latitude.toFixed(4);
+    const toLng = to.longitude.toFixed(4);
+    
+    // Include speed range in key (rounded to nearest 10 km/h)
+    const speedRange = Math.round(from.speed / 10) * 10;
+    
+    return `${fromLat},${fromLng}-${toLat},${toLng}-${speedRange}`;
+  }
+
+  private getFromCache(key: string): ETAResult | null {
+    const entry = this.routeCache[key];
+    if (!entry) return null;
+
+    const age = Date.now() - entry.timestamp;
+    if (age > this.CACHE_TTL_MS) {
+      delete this.routeCache[key];
       return null;
+    }
+
+    return entry.result;
+  }
+
+  private addToCache(key: string, result: ETAResult): void {
+    // Prevent cache from growing too large
+    const cacheSize = Object.keys(this.routeCache).length;
+    if (cacheSize >= this.MAX_CACHE_SIZE) {
+      this.cleanupCache();
+    }
+
+    this.routeCache[key] = {
+      result,
+      timestamp: Date.now(),
+      key
+    };
+  }
+
+  private cleanupCache(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+
+    for (const [key, entry] of Object.entries(this.routeCache)) {
+      if (now - entry.timestamp > this.CACHE_TTL_MS) {
+        keysToDelete.push(key);
+      }
+    }
+
+    keysToDelete.forEach(key => delete this.routeCache[key]);
+    
+    if (keysToDelete.length > 0) {
+      logger.debug(`Cleaned up ${keysToDelete.length} expired cache entries`);
     }
   }
 
-  private async calculateETAFromHistoricalData(
-    vehicleId: string,
-    geofenceId: string
-  ): Promise<ETAResult | null> {
-    try {
-      // Query historical data for this vehicle-geofence combination
-      // This is a simplified version - in practice, you'd want more sophisticated analysis
-      
-      const currentTime = Date.now();
-      const oneWeekAgo = currentTime - (7 * 24 * 60 * 60 * 1000);
-
-      // This would require a more complex query to find historical arrival patterns
-      // For now, return a basic estimate based on average urban speeds
-      
-      const currentLocation = await this.getCurrentVehicleLocation(vehicleId);
-      const geofenceLocation = await this.getGeofenceLocation(geofenceId);
-      
-      if (!currentLocation || !geofenceLocation) return null;
-
-      const distance = this.calculateDistance(
-        currentLocation.latitude,
-        currentLocation.longitude,
-        geofenceLocation.latitude,
-        geofenceLocation.longitude
-      );
-
-      // Assume average urban transit speed of 25 km/h
-      const averageSpeedKmh = 25;
-      const etaMinutes = (distance / 1000) / averageSpeedKmh * 60;
-
-      return {
-        estimatedArrivalMinutes: Math.round(etaMinutes),
-        distanceMeters: distance,
-        confidence: 'medium',
-        method: 'historical_average'
-      };
-    } catch (error) {
-      console.error('Error calculating historical ETA:', error);
-      return null;
-    }
-  }
-
+  // Utility methods
   private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
     const R = 6371000; // Earth's radius in meters
     const dLat = this.toRadians(lat2 - lat1);
@@ -288,7 +396,8 @@ export class ETACalculator {
     const lat2Rad = this.toRadians(lat2);
 
     const y = Math.sin(dLng) * Math.cos(lat2Rad);
-    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - 
+              Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
 
     const bearing = Math.atan2(y, x);
     return (this.toDegrees(bearing) + 360) % 360;
@@ -300,5 +409,14 @@ export class ETACalculator {
 
   private toDegrees(radians: number): number {
     return radians * (180 / Math.PI);
+  }
+
+  // Public method to get cache statistics
+  public getCacheStats(): { size: number; hitRate: number; apiCallsPerMinute: number } {
+    return {
+      size: Object.keys(this.routeCache).length,
+      hitRate: 0, // Would need to track hits/misses for this
+      apiCallsPerMinute: this.apiCallCount
+    };
   }
 }

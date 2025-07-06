@@ -124,6 +124,7 @@ export class GeofenceStack extends cdk.Stack {
         ALERTS_TABLE_NAME: this.alertsTable.tableName,
         LOCATION_TABLE_NAME: `transport-locations-${environment}`,
         HIGH_PRIORITY_SNS_TOPIC: highPriorityTopic.topicArn,
+        MAPBOX_API_KEY: process.env.MAPBOX_API_KEY || '',
         PORT: '3001'
       },
       healthCheck: {
