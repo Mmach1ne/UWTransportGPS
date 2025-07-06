@@ -22,7 +22,7 @@
   "include": [],
   "references": [
     { "path": "./packages/utils" },
-    { "path": "./packages/ui" }
+    { "path": "./packages/ui" },
     { "path": "./apps/web" }
   ]
 }

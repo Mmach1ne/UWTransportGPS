@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.8.10",
+    "@types/react-router-dom": "5",
     "concurrently": "^8.2.2",
     "eslint": "^8.52.0",
     "husky": "^8.0.3",
@@ -75,5 +76,9 @@
     "hooks": {
       "pre-commit": "lint-staged"
     }
+  },
+  "dependencies": {
+    "react-router": "5",
+    "react-router-dom": "5"
   }
 }

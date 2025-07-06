@@ -2,20 +2,18 @@ import * as cdk from 'aws-cdk-lib';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as kinesis from 'aws-cdk-lib/aws-kinesis';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
-interface TrackStoreStackProps extends cdk.StackProps {
+interface GeofenceStackProps extends cdk.StackProps {
     environment: string;
-    kinesisStream: kinesis.Stream;
-    deviceTable: dynamodb.Table;
-    locationTable: dynamodb.Table;
+    vpc?: ec2.IVpc;
+    cluster?: ecs.ICluster;
 }
-export declare class TrackStoreStack extends cdk.Stack {
+export declare class GeofenceStack extends cdk.Stack {
     readonly service: ecs.FargateService;
     readonly loadBalancer: elbv2.ApplicationLoadBalancer;
-    readonly vpc: ec2.Vpc;
-    readonly cluster: ecs.Cluster;
-    constructor(scope: Construct, id: string, props: TrackStoreStackProps);
+    readonly geofenceTable: dynamodb.Table;
+    readonly alertsTable: dynamodb.Table;
+    constructor(scope: Construct, id: string, props: GeofenceStackProps);
 }
 export {};
